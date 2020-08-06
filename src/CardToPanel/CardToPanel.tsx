@@ -28,6 +28,9 @@ import Animated, {
   neq,
   stopClock,
   timing,
+  greaterOrEq,
+  lessOrEq,
+  clockRunning,
 } from 'react-native-reanimated';
 import Colors from '../../styles/Colors';
 import LinearGradient from 'react-native-linear-gradient';
@@ -35,6 +38,7 @@ import {
   TouchableWithoutFeedback,
   State,
   RectButton,
+  PanGestureHandler,
 } from 'react-native-gesture-handler';
 import {
   useValues,
@@ -43,6 +47,7 @@ import {
   withTimingTransition,
   useDebug,
   TimingConfig,
+  onGestureEvent as createGestureHandler,
 } from 'react-native-redash';
 import {useHeaderHeight} from '@react-navigation/stack';
 import {useSafeArea} from 'react-native-safe-area-context';
@@ -142,7 +147,6 @@ const Panel: React.FC<PanelProps> = ({onClose}) => {
       bottom: new Value<number>(CARD_MARGIN + TAB_BAR_HEIGHT),
       left: new Value<number>(CARD_MARGIN),
       right: new Value<number>(CARD_MARGIN),
-      opacity: new Value<number>(0),
     }),
     [],
   );
@@ -179,8 +183,6 @@ const Panel: React.FC<PanelProps> = ({onClose}) => {
         reversibleInterpolate(timingTransition, CARD_MARGIN, 0, goDown),
       ),
       set(cardPosition.right, cardPosition.left),
-      // TODO: can remove this with reanimated 10.2 https://github.com/software-mansion/react-native-reanimated/pull/1027
-      set(cardPosition.opacity, new Value(1)),
       set(
         cardAppearance.borderRadius,
         reversibleInterpolate(timingTransition, BORDER_RADIUS, 0, goDown),
@@ -203,10 +205,7 @@ const Panel: React.FC<PanelProps> = ({onClose}) => {
       <Animated.View
         style={[
           {
-            // borderColor: 'red',
-            // borderWidth: 2,
             position: 'absolute',
-            // opacity: 0,
             zIndex: 2,
             elevation: 2,
             ...cardPosition,
@@ -292,6 +291,41 @@ const TabBar = () => {
   );
 };
 
+const withCardAnimation = (
+  animateFromPosition: number,
+  animateToPosition: number,
+) => {
+  const clock = new Clock();
+  const state: Animated.TimingState = {
+    finished: new Value(0),
+    position: new Value(0),
+    time: new Value(0),
+    frameTime: new Value(0),
+  };
+  const config = {
+    toValue: new Value(1),
+    duration: 250,
+    easing: Easing.linear,
+  };
+  const resetState = [
+    set(state.finished, 0),
+    set(state.time, 0),
+    set(state.frameTime, 0),
+  ];
+  return block([
+    cond(not(clockRunning(clock)), startClock(clock)),
+    timing(clock, state, config),
+    cond(state.finished, [
+      ...resetState,
+      cond(not(state.position), stopClock(clock)),
+    ]),
+    interpolate(state.position, {
+      inputRange: [0, 1],
+      outputRange: [animateFromPosition, animateToPosition],
+    }),
+  ]);
+};
+
 const CardToPanel = () => {
   const [showPanel, setShowPanel] = useState<boolean>(false);
 
@@ -302,6 +336,23 @@ const CardToPanel = () => {
   const openPanel = () => {
     setShowPanel(true);
   };
+
+  const translationY = new Value(0);
+  const gestureState = new Value(State.UNDETERMINED);
+  const {onGestureEvent, onHandlerStateChange} = createGestureHandler({
+    translationY,
+    state: gestureState,
+  });
+
+  useCode(
+    () => [
+      cond(and(eq(gestureState, State.ACTIVE), lessOrEq(translationY, -10)), [
+        set(translationY, new Value(0)),
+        call([], openPanel),
+      ]),
+    ],
+    [showPanel],
+  );
 
   return (
     <SafeAreaView
@@ -319,7 +370,13 @@ const CardToPanel = () => {
             marginTop: 'auto',
           }}>
           <TouchableWithoutFeedback onPress={openPanel}>
-            <Card borderRadius={5} />
+            <PanGestureHandler
+              onGestureEvent={onGestureEvent}
+              onHandlerStateChange={onHandlerStateChange}>
+              <Animated.View>
+                <Card borderRadius={5} />
+              </Animated.View>
+            </PanGestureHandler>
           </TouchableWithoutFeedback>
         </View>
       )}
