@@ -1,4 +1,4 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useRef} from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,7 @@ import Animated, {
 import Colors from '../../styles/Colors';
 import LinearGradient from 'react-native-linear-gradient';
 import {
+  TapGestureHandler,
   TouchableWithoutFeedback,
   State,
   RectButton,
@@ -79,11 +80,16 @@ const reversibleInterpolate = (
   outputFrom: number | Animated.Value<number> | Animated.Node<number>,
   outputTo: number | Animated.Value<number> | Animated.Node<number>,
   reverse: boolean,
+  delta?: number | Animated.Value<number> | Animated.Node<number>,
 ) => {
   const outputRange = [
     reverse ? outputTo : outputFrom,
     reverse ? outputFrom : outputTo,
   ];
+
+  if (!reverse && delta) {
+    outputRange[0] = add(outputFrom, delta);
+  }
 
   return interpolate(value, {
     inputRange: [0, 1],
@@ -101,7 +107,7 @@ const withTimingWithCallback = (onFinishedAnimating?: () => void) => {
   };
   const config = {
     toValue: new Value(1),
-    duration: 5000,
+    duration: 250,
     easing: Easing.linear,
   };
   return block([
@@ -128,38 +134,30 @@ const Messages = () => {
 const Panel: React.FC<PanelProps> = ({cardTranslation, onClose}) => {
   const HEADER_HEIGHT = useHeaderHeight();
   const STATUS_BAR_HEIGHT = StatusBar.currentHeight;
-  const inset = useSafeArea();
   const FINAL_CARD_TOP =
     WINDOW_HEIGHT -
     TAB_BAR_HEIGHT -
     CARD_HEIGHT -
     CARD_MARGIN -
     HEADER_HEIGHT -
-    STATUS_BAR_HEIGHT -
-    inset.top -
-    inset.bottom;
+    STATUS_BAR_HEIGHT;
   const FINAL_CARD_BOTTOM = CARD_MARGIN + TAB_BAR_HEIGHT;
-
-  // const CARD_BOTTOM = add(CARD_MAX_BOTTOM, cardTranslation);
 
   const CARD_TOTAL_TRAVEL = CARD_HEIGHT + CARD_MARGIN;
   const CARD_TRAVEL_DELTA = add(CARD_TOTAL_TRAVEL, cardTranslation);
-  const CARD_STARTING_BOTTOM = sub(FINAL_CARD_BOTTOM, CARD_TRAVEL_DELTA);
-  const CARD_STARTING_TOP = add(FINAL_CARD_TOP, CARD_TRAVEL_DELTA);
 
   const [goDown, setGoDown] = useState(false);
 
   const timingTransition = new Value(0);
 
-  const cardPosition = useMemo(
-    () => ({
-      top: CARD_STARTING_TOP,
-      bottom: CARD_STARTING_BOTTOM,
+  const cardPosition = useMemo(() => {
+    return {
+      top: new Value<number>(FINAL_CARD_TOP),
+      bottom: new Value<number>(FINAL_CARD_BOTTOM),
       left: new Value<number>(CARD_MARGIN),
       right: new Value<number>(CARD_MARGIN),
-    }),
-    [],
-  );
+    };
+  }, []);
 
   const cardAppearance = useMemo(
     () => ({
@@ -177,15 +175,22 @@ const Panel: React.FC<PanelProps> = ({cardTranslation, onClose}) => {
       ),
       set(
         cardPosition.top,
-        reversibleInterpolate(timingTransition, CARD_STARTING_TOP, 0, goDown),
+        reversibleInterpolate(
+          timingTransition,
+          FINAL_CARD_TOP,
+          0,
+          goDown,
+          CARD_TRAVEL_DELTA,
+        ),
       ),
       set(
         cardPosition.bottom,
         reversibleInterpolate(
           timingTransition,
-          CARD_STARTING_BOTTOM,
+          FINAL_CARD_BOTTOM,
           0,
           goDown,
+          multiply(-1, CARD_TRAVEL_DELTA),
         ),
       ),
       set(
@@ -316,7 +321,7 @@ const withCardAnimation = (
   };
   const config = {
     toValue: new Value(1),
-    duration: 5000,
+    duration: 250,
     easing: Easing.linear,
   };
   return block([
@@ -358,19 +363,19 @@ const CardToPanel = () => {
         call([], openPanel),
       ]),
     ],
-    [showPanel],
+    [],
   );
 
   // CARD UP & DOWN ON BUTTON PRESS
   useCode(() => {
     if (animateCard) {
       return [
-        debug('translateY', translateY),
+        // debug('translateY', translateY),
         set(translateY, withCardAnimation(0, -CARD_HEIGHT - 16)),
       ];
     } else {
       return [
-        debug('translateY', translateY),
+        // debug('translateY', translateY),
         set(translateY, withCardAnimation(-CARD_HEIGHT - 16, 0)),
       ];
     }
@@ -398,15 +403,20 @@ const CardToPanel = () => {
           },
           {transform: [{translateY}]},
         ]}>
-        <TouchableWithoutFeedback onPress={openPanel}>
-          <PanGestureHandler
-            onGestureEvent={onGestureEvent}
-            onHandlerStateChange={onHandlerStateChange}>
-            <Animated.View>
-              <Card borderRadius={5} />
-            </Animated.View>
-          </PanGestureHandler>
-        </TouchableWithoutFeedback>
+        <TapGestureHandler
+          onHandlerStateChange={({nativeEvent}) =>
+            nativeEvent.state === State.ACTIVE && openPanel()
+          }>
+          <Animated.View>
+            <PanGestureHandler
+              onGestureEvent={onGestureEvent}
+              onHandlerStateChange={onHandlerStateChange}>
+              <Animated.View>
+                <Card borderRadius={5} />
+              </Animated.View>
+            </PanGestureHandler>
+          </Animated.View>
+        </TapGestureHandler>
       </Animated.View>
       <TabBar />
     </SafeAreaView>
